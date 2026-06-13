@@ -9,6 +9,7 @@ app = Flask(__name__)
 ALLOWED_AGGFUNCS = {"sum", "mean", "count"}
 
 
+<<<<<<< HEAD
 def _parse_aggfunc(aggfunc_str: str, values_list: list) -> dict:
     if not aggfunc_str:
         return {v: "sum" for v in values_list}
@@ -92,11 +93,53 @@ def _json_value(v):
         return v.total_seconds()
     if isinstance(v, (pd.Period,)):
         return str(v)
+=======
+def pivot_table_to_json(df: pd.DataFrame) -> str:
+    data = []
+    if isinstance(df.columns, pd.MultiIndex):
+        col_tuples = list(df.columns)
+    else:
+        col_tuples = [(str(c),) for c in df.columns]
+
+    if isinstance(df.index, pd.MultiIndex):
+        idx_names = list(df.index.names)
+    else:
+        idx_names = [df.index.name if df.index.name else "index"]
+
+    for idx, row in df.iterrows():
+        if isinstance(idx, tuple):
+            idx_values = list(idx)
+        else:
+            idx_values = [idx]
+
+        row_data = {}
+        for name, val in zip(idx_names, idx_values):
+            row_data[name] = _json_value(val)
+
+        for col_tuple in col_tuples:
+            if len(col_tuple) == 1:
+                key = col_tuple[0]
+            else:
+                key = "_".join(str(c) for c in col_tuple)
+            row_data[key] = _json_value(row[col_tuple] if len(col_tuple) > 1 else row[col_tuple[0]])
+
+        data.append(row_data)
+
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _json_value(v):
+    if pd.isna(v):
+        return None
+    if isinstance(v, (pd.Timestamp,)):
+        return v.isoformat()
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
     if hasattr(v, "item"):
         try:
             return v.item()
         except Exception:
             pass
+<<<<<<< HEAD
     try:
         import numpy as np
         if isinstance(v, np.ndarray):
@@ -126,6 +169,11 @@ def pivot_table_to_json(df: pd.DataFrame) -> str:
     return json.dumps(cleaned, ensure_ascii=False)
 
 
+=======
+    return v
+
+
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
 @app.route("/pivot", methods=["POST"])
 def pivot():
     if "file" not in request.files:
@@ -148,11 +196,21 @@ def pivot():
     rows_list = [r.strip() for r in rows.split(",") if r.strip()]
     cols_list = [c.strip() for c in cols.split(",") if c.strip()] if cols else []
     values_list = [v.strip() for v in values.split(",") if v.strip()]
+<<<<<<< HEAD
 
     try:
         aggfunc_dict = _parse_aggfunc(aggfunc, values_list)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+=======
+    aggfunc_list = [a.strip() for a in aggfunc.split(",") if a.strip()]
+
+    for af in aggfunc_list:
+        if af not in ALLOWED_AGGFUNCS:
+            return jsonify({
+                "error": f"Invalid aggfunc '{af}'. Allowed values: {', '.join(sorted(ALLOWED_AGGFUNCS))}"
+            }), 400
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
 
     try:
         content = file.read().decode("utf-8")
@@ -164,11 +222,20 @@ def pivot():
         if col not in df.columns:
             return jsonify({"error": f"Column '{col}' not found in CSV"}), 400
 
+<<<<<<< HEAD
+=======
+    effective_aggfunc = aggfunc_list[0] if len(aggfunc_list) == 1 else aggfunc_list
+
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
     try:
         pivot_kwargs = {
             "index": rows_list,
             "values": values_list,
+<<<<<<< HEAD
             "aggfunc": aggfunc_dict,
+=======
+            "aggfunc": effective_aggfunc,
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
         }
         if cols_list:
             pivot_kwargs["columns"] = cols_list
@@ -177,7 +244,11 @@ def pivot():
     except Exception as e:
         return jsonify({"error": f"Failed to build pivot table: {str(e)}"}), 400
 
+<<<<<<< HEAD
     result_json = pivot_table_to_json(result_df)
+=======
+    result_json = pivot_table_to_json(result_df.reset_index() if not isinstance(result_df.index, pd.MultiIndex) and result_df.index.name is None else result_df)
+>>>>>>> 7f39fa415118e77811ecad8135eb147e46a14719
 
     return app.response_class(
         response=result_json,
