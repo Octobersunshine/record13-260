@@ -9,6 +9,57 @@ app = Flask(__name__)
 ALLOWED_AGGFUNCS = {"sum", "mean", "count"}
 
 
+def _parse_aggfunc(aggfunc_str: str, values_list: list) -> dict:
+    if not aggfunc_str:
+        return {v: "sum" for v in values_list}
+
+    stripped = aggfunc_str.strip()
+    if stripped.startswith("{"):
+        try:
+            aggfunc_dict = json.loads(stripped)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid aggfunc JSON: {e}")
+
+        if not isinstance(aggfunc_dict, dict):
+            raise ValueError("aggfunc JSON must be an object")
+
+        result = {}
+        for col, funcs in aggfunc_dict.items():
+            if col not in values_list:
+                raise ValueError(f"aggfunc key '{col}' is not in values")
+            if isinstance(funcs, str):
+                func_list = [funcs]
+            elif isinstance(funcs, list):
+                func_list = funcs
+            else:
+                raise ValueError(f"aggfunc value for '{col}' must be string or array")
+
+            for f in func_list:
+                if f not in ALLOWED_AGGFUNCS:
+                    raise ValueError(
+                        f"Invalid aggfunc '{f}' for '{col}'. "
+                        f"Allowed: {', '.join(sorted(ALLOWED_AGGFUNCS))}"
+                    )
+
+            result[col] = func_list[0] if len(func_list) == 1 else func_list
+
+        for v in values_list:
+            if v not in result:
+                result[v] = "sum"
+
+        return result
+
+    func_list = [a.strip() for a in aggfunc_str.split(",") if a.strip()]
+    for f in func_list:
+        if f not in ALLOWED_AGGFUNCS:
+            raise ValueError(
+                f"Invalid aggfunc '{f}'. Allowed: {', '.join(sorted(ALLOWED_AGGFUNCS))}"
+            )
+
+    effective_funcs = func_list[0] if len(func_list) == 1 else func_list
+    return {v: effective_funcs for v in values_list}
+
+
 def _flatten_columns(columns) -> list:
     if not isinstance(columns, pd.MultiIndex):
         return [str(c) if c is not None else "" for c in columns]
@@ -97,13 +148,11 @@ def pivot():
     rows_list = [r.strip() for r in rows.split(",") if r.strip()]
     cols_list = [c.strip() for c in cols.split(",") if c.strip()] if cols else []
     values_list = [v.strip() for v in values.split(",") if v.strip()]
-    aggfunc_list = [a.strip() for a in aggfunc.split(",") if a.strip()]
 
-    for af in aggfunc_list:
-        if af not in ALLOWED_AGGFUNCS:
-            return jsonify({
-                "error": f"Invalid aggfunc '{af}'. Allowed values: {', '.join(sorted(ALLOWED_AGGFUNCS))}"
-            }), 400
+    try:
+        aggfunc_dict = _parse_aggfunc(aggfunc, values_list)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     try:
         content = file.read().decode("utf-8")
@@ -115,13 +164,11 @@ def pivot():
         if col not in df.columns:
             return jsonify({"error": f"Column '{col}' not found in CSV"}), 400
 
-    effective_aggfunc = aggfunc_list[0] if len(aggfunc_list) == 1 else aggfunc_list
-
     try:
         pivot_kwargs = {
             "index": rows_list,
             "values": values_list,
-            "aggfunc": effective_aggfunc,
+            "aggfunc": aggfunc_dict,
         }
         if cols_list:
             pivot_kwargs["columns"] = cols_list
